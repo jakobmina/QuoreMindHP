@@ -95,6 +95,9 @@ class ModelTrainer:
         
         # Asegurarse de usar las mismas columnas que en el entrenamiento
         X_test = processed_test_data.select_dtypes(include=['number'])
+
+        if 'id' in X_test.columns:
+            X_test = X_test.drop(columns=['id'])
         
         # 2. Realizar predicciones
         print(f"Realizando predicciones sobre {len(X_test)} muestras...")

@@ -229,104 +229,82 @@ class StatisticalAnalysisHP:
 
     @staticmethod
     @timer_decorator
-    def compute_mahalanobis_distance_hp(data: List[List[Union[float, str]]],
-                                        point: List[Union[float, str]]) -> MP_Float:
+    def precompute_mahalanobis_components(data: List[List[Union[float, str]]]) -> Tuple[Any, Any]:
         """
-        Calcula la distancia de Mahalanobis con alta precisión usando mpmath.
-
-        Args:
-            data: Conjunto de datos (lista de listas de números o strings representándolos).
-            point: Punto para el cual se calcula la distancia.
-
-        Returns:
-            Distancia de Mahalanobis como mpmath.mpf.
+        Precomputa el vector de medias y la inversa de la matriz de covarianza.
         """
-        # Convertir datos a matriz mpmath, converting each element
         try:
             data_mp_list = [[mpmath.mpf(str(elem)) for elem in row] for row in data]
-            point_mp_list = [mpmath.mpf(str(elem)) for elem in point]
             data_mp = mpmath.matrix(data_mp_list)
-            point_mp = mpmath.matrix([point_mp_list]) # Wrap point in a list to make it a row vector
         except Exception as e:
             raise ValueError(f"Error al convertir datos a mpmath.matrix: {e}")
 
-
-        if data_mp.cols != point_mp.cols or point_mp.rows != 1:
-             raise ValueError("Dimensiones incompatibles entre los datos y el punto.")
-
-        n_rows = data_mp.rows
-        n_cols = data_mp.cols
+        n_rows, n_cols = data_mp.rows, data_mp.cols
 
         if n_rows <= n_cols:
-            print("ADVERTENCIA: Número de muestras menor o igual al número de dimensiones.")
-            print("             La matriz de covarianza puede ser singular.")
-            # Considerar usar regularización o más datos si es posible
+            print("ADVERTENCIA: Número de muestras <= número de dimensiones. La matriz de covarianza puede ser singular.")
 
-        # 1. Calcular vector de medias (alta precisión)
         mean_vector = mpmath.matrix(1, n_cols)
         for j in range(n_cols):
-            col_sum = mpmath.fsum(data_mp[:, j])
-            mean_vector[0, j] = mpmath.fdiv(col_sum, n_rows)
+            mean_vector[0, j] = mpmath.fsum(data_mp[:, j]) / n_rows
 
-        # 2. Calcular matriz de covarianza (alta precisión)
-        #    Cov(X, Y) = E[(X - E[X]) * (Y - E[Y])]
         cov_matrix = mpmath.zeros(n_cols)
         for i in range(n_cols):
-            for j in range(i, n_cols): # Calcular solo la triangular superior
-                sum_prod = mpmath.mpf(0)
-                for k in range(n_rows):
-                    diff_i = data_mp[k, i] - mean_vector[0, i]
-                    diff_j = data_mp[k, j] - mean_vector[0, j]
-                    sum_prod += diff_i * diff_j
-                # Usar n o n-1 para la covarianza muestral/poblacional?
-                # Scipy/numpy usan n-1 por defecto (estimador insesgado)
-                # Usaremos n-1 aquí también para consistencia, si n > 1
+            for j in range(i, n_cols):
+                sum_prod = mpmath.fsum([(data_mp[k, i] - mean_vector[0, i]) * (data_mp[k, j] - mean_vector[0, j]) for k in range(n_rows)])
                 denom = mpmath.mpf(n_rows - 1) if n_rows > 1 else mpmath.mpf(1)
-                cov_ij = mpmath.fdiv(sum_prod, denom)
+                cov_ij = sum_prod / denom
                 cov_matrix[i, j] = cov_ij
                 if i != j:
-                    cov_matrix[j, i] = cov_ij # Simétrica
+                    cov_matrix[j, i] = cov_ij
 
-        print("Matriz de Covarianza (mpmath):")
-        mpmath.pprint(cov_matrix)
-
-        # 3. Calcular inversa de la matriz de covarianza (alta precisión)
         try:
-            # Usar mpmath.inverse()
             inv_cov_matrix = mpmath.inverse(cov_matrix)
-            print("Inversa de la Matriz de Covarianza (mpmath):")
-            mpmath.pprint(inv_cov_matrix)
-        except mpmath.LUError: # Ocurre si es singular
-            print("ADVERTENCIA: Matriz de covarianza singular (detectado por mpmath).")
-            # mpmath no tiene una pseudo-inversa directa como numpy.
-            # Podría intentarse regularización (añadir pequeña identidad)
-            # O calcularla manualmente si fuera necesario (complejo).
-            # Por ahora, retornamos infinito o NaN para indicar fallo.
-            # return mpmath.inf
-            # Alternativa: Usar numpy pinv sobre versión float y convertir de vuelta?
-            # Esto perdería precisión. Mejor indicamos el error.
-            print("             Retornando Infinito como indicador de error.")
+        except ZeroDivisionError:
+            print("ADVERTENCIA: Matriz de covarianza singular. Añadiendo regularización.")
+            identity = mpmath.eye(n_cols)
+            cov_matrix += identity * mpmath.mpf('1e-10')
+            try:
+                inv_cov_matrix = mpmath.inverse(cov_matrix)
+            except ZeroDivisionError:
+                print("ERROR: La regularización falló. La matriz sigue siendo singular.")
+                return None, None
+
+        return mean_vector, inv_cov_matrix
+
+    @staticmethod
+    def calculate_mahalanobis_for_point(point: List[Union[float, str]],
+                                        mean_vector: Any,
+                                        inv_cov_matrix: Any) -> MP_Float:
+        """
+        Calcula la distancia de Mahalanobis para un punto usando componentes precomputados.
+        """
+        if mean_vector is None or inv_cov_matrix is None:
             return mpmath.inf
 
-        # 4. Calcular diferencia del punto a la media
+        try:
+            point_mp = mpmath.matrix([[mpmath.mpf(str(p)) for p in point]])
+        except Exception as e:
+            raise ValueError(f"Error al convertir el punto a mpmath.matrix: {e}")
+
         diff_point = point_mp - mean_vector
+        mahalanobis_sq = diff_point * inv_cov_matrix * diff_point.T
+        mahalanobis_sq_val = mahalanobis_sq[0, 0]
 
-        # 5. Calcular distancia Mahalanobis^2: (x-mu)^T * Sigma^-1 * (x-mu)
-        #    En mpmath: diff * inv_cov * diff.T (si diff es fila)
-        term1 = diff_point * inv_cov_matrix
-        mahalanobis_sq = term1 * diff_point.T
-
-        # El resultado de la multiplicación de matrices es una matriz 1x1
-        mahalanobis_sq_val = mahalanobis_sq[0,0]
-
-        # La distancia es la raíz cuadrada
         if mahalanobis_sq_val < 0:
-             # Puede ocurrir por errores numéricos mínimos si es casi cero
-             print(f"ADVERTENCIA: Mahalanobis^2 resultó negativo ({mahalanobis_sq_val}). Ajustando a cero.")
-             mahalanobis_sq_val = mpmath.mpf(0)
+            mahalanobis_sq_val = mpmath.mpf(0)
 
-        distance = mpmath.sqrt(mahalanobis_sq_val)
-        return distance
+        return mpmath.sqrt(mahalanobis_sq_val)
+
+    @staticmethod
+    @timer_decorator
+    def compute_mahalanobis_distance_hp(data: List[List[Union[float, str]]],
+                                        point: List[Union[float, str]]) -> MP_Float:
+        """
+        Calcula la distancia de Mahalanobis (versión no optimizada).
+        """
+        mean_vector, inv_cov_matrix = StatisticalAnalysisHP.precompute_mahalanobis_components(data)
+        return StatisticalAnalysisHP.calculate_mahalanobis_for_point(point, mean_vector, inv_cov_matrix)
 
     @staticmethod
     @timer_decorator
