@@ -3,6 +3,7 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from config import TEST_SIZE, RANDOM_STATE_SPLIT
+from quoremindhp import StatisticalAnalysisHP
 
 class DataManager:
     """
@@ -13,7 +14,8 @@ class DataManager:
         """
         Inicializador de la clase DataManager.
         """
-        pass  # En futuras versiones, podrías inicializar aquí parámetros de preprocesamiento
+        self.mahalanobis_mean_vector = None
+        self.mahalanobis_inv_cov_matrix = None
 
     def load_data(self, file_path: str):
         """
@@ -102,6 +104,28 @@ class DataManager:
         # - Codificación de variables categóricas (One-Hot Encoding, Label Encoding)
         # - Escalado de características (StandardScaler, MinMaxScaler)
         # - Creación de nuevas características (Feature Engineering)
-        
+        if is_train:
+            train_data_for_mahalanobis = processed_data.select_dtypes(include=['number']).drop(columns=[col for col in ['target', 'id'] if col in processed_data.columns], errors='ignore')
+            self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix = StatisticalAnalysisHP.precompute_mahalanobis_components(train_data_for_mahalanobis.values.tolist())
+
+            mahalanobis_distances = []
+            for index, row in train_data_for_mahalanobis.iterrows():
+                point = row.values.tolist()
+                distance = StatisticalAnalysisHP.calculate_mahalanobis_for_point(point, self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix)
+                mahalanobis_distances.append(float(distance))
+            processed_data['mahalanobis_distance'] = mahalanobis_distances
+            print("  - Creada la característica 'mahalanobis_distance' para el conjunto de entrenamiento.")
+
+        else:
+            if self.mahalanobis_mean_vector is not None and self.mahalanobis_inv_cov_matrix is not None:
+                mahalanobis_distances = []
+                feature_columns = processed_data.select_dtypes(include=['number']).drop(columns=[col for col in ['target', 'id'] if col in processed_data.columns], errors='ignore').columns
+                for index, row in processed_data.iterrows():
+                    point = row[feature_columns].values.tolist()
+                    distance = StatisticalAnalysisHP.calculate_mahalanobis_for_point(point, self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix)
+                    mahalanobis_distances.append(float(distance))
+                processed_data['mahalanobis_distance'] = mahalanobis_distances
+                print("  - Creada la característica 'mahalanobis_distance'.")
+
         print("Preprocesamiento completado.")
         return processed_data
