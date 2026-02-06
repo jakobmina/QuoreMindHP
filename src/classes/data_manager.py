@@ -2,6 +2,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from config import TEST_SIZE, RANDOM_STATE_SPLIT
 from quoremindhp import StatisticalAnalysisHP
+from quoremindhp_integration import MahalanobisHP
 
 class DataManager:
     """
@@ -146,13 +147,27 @@ class DataManager:
                 print(f"  - Columna 'Target |x⟩': Validada (todos los estados son qubits válidos)")
         
         # FASE 4: Calcular simetría de Mahalanobis solo si es apropiado
-        if is_train:
-            # Usar solo características numéricas para Mahalanobis
-            numeric_features = processed_data.select_dtypes(include=['number']).drop(
-                columns=[col for col in ['n', 'target', 'id'] if col in processed_data.columns], 
-                errors='ignore'
-            )
-            
+       # En data_manager.py, en preprocess_data()
+
+      if is_train:
+          # Usar ALTA PRECISIÓN para entrenamiento
+          mahal_hp = MahalanobisHP(precision_dps=100)
+          mean_vec, inv_cov = mahal_hp.precompute_components(
+            train_data_for_mahalanobis.values.tolist()
+          )
+    
+          # Calcular distancias
+          distances = []
+         for _, row in train_data_for_mahalanobis.iterrows():
+            result = mahal_hp.calculate_for_point(
+            row.values.tolist(),
+            mean_vec, 
+            inv_cov
+        )
+        distances.append(float(result.distance))
+    
+    processed_data['mahalanobis_distance'] = distances
+    print("✓ Mahalanobis HP: Precisión 100 dígitos")
             if not numeric_features.empty:
                 self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix = \
                     StatisticalAnalysisHP.precompute_mahalanobis_components(numeric_features.values.tolist())
