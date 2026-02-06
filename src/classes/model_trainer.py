@@ -4,6 +4,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from .data_manager import DataManager
 from config import MODEL_PARAMS
+from quoremindhp_integration import BayesianAnalysisH7
 
 class ModelTrainer:
     """
@@ -128,33 +129,19 @@ class ModelTrainer:
         print("\n" + "=" * 70)
 
     def evaluate(self, val_data: pd.DataFrame) -> dict:
-        """
-        Evalúa el modelo en el conjunto de validación.
-        
-        Calcula métricas:
-        - Accuracy
-        - Precision (weighted)
-        - Recall (weighted)
-        - F1-Score (weighted)
-        - Matriz de confusión (para análisis detallado)
+      # En model_trainer.py, en evaluate()
 
-        Args:
-            val_data (pd.DataFrame): DataFrame de validación que incluye 'Target |x⟩'.
 
-        Returns:
-            dict: Diccionario con métricas de evaluación y matriz de confusión.
-            
-        Raises:
-            ValueError: Si falta la columna objetivo o el modelo no ha sido entrenado.
-        """
-        if self.target_column not in val_data.columns:
-            raise ValueError(
-                f"La columna objetivo '{self.target_column}' no se encuentra en los datos de validación."
-            )
-        
-        if self.model is None or self.feature_columns is None:
-            raise ValueError("El modelo no ha sido entrenado. Ejecute train() primero.")
-        
+# Análisis Bayesiano de predicciones
+bayes_h7 = BayesianAnalysisH7(precision_dps=100)
+
+# Para cada clase predicha
+for target_class in np.unique(y_val):
+    # Si tienes Estado 2-1 en val_data:
+    if 'Estado 2-1' in val_data.columns:
+        estado = val_data['Estado 2-1'].iloc[0]
+        coherence = bayes_h7.calculate_entanglement_coherence(estado)
+        print(f"  Coherencia ({target_class}): {mpmath.nstr(coherence, n=15)}")
         print("=" * 70)
         print("FASE 4: EVALUACIÓN EN CONJUNTO DE VALIDACIÓN")
         print("=" * 70)
