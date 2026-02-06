@@ -1,8 +1,13 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from config import TEST_SIZE, RANDOM_STATE_SPLIT
+from config import (
+    TEST_SIZE, RANDOM_STATE_SPLIT, 
+    QUOREMINDHP_ENABLED, QUANTUM_PRECISION_DPS,
+    H7_NUMERIC_FEATURES
+)
 from quoremindhp import StatisticalAnalysisHP
 from quoremindhp_integration import MahalanobisHP
+
 
 class DataManager:
     """
@@ -146,63 +151,48 @@ class DataManager:
             else:
                 print(f"  - Columna 'Target |x⟩': Validada (todos los estados son qubits válidos)")
         
-        # FASE 4: Calcular simetría de Mahalanobis solo si es apropiado
-       # En data_manager.py, en preprocess_data()
-
-      if is_train:
-          # Usar ALTA PRECISIÓN para entrenamiento
-          mahal_hp = MahalanobisHP(precision_dps=100)
-          mean_vec, inv_cov = mahal_hp.precompute_components(
-            train_data_for_mahalanobis.values.tolist()
-          )
-    
-          # Calcular distancias
-          distances = []
-         for _, row in train_data_for_mahalanobis.iterrows():
-            result = mahal_hp.calculate_for_point(
-            row.values.tolist(),
-            mean_vec, 
-            inv_cov
-        )
-        distances.append(float(result.distance))
-    
-    processed_data['mahalanobis_distance'] = distances
-    print("✓ Mahalanobis HP: Precisión 100 dígitos")
-            if not numeric_features.empty:
+        # FASE 4: Calcular simetría de Mahalanobis (ALTA PRECISIÓN si está habilitado)
+        numeric_features_df = processed_data[H7_NUMERIC_FEATURES]
+        
+        if QUOREMINDHP_ENABLED:
+            print(f"  - Mahalanobis HP: Iniciando con {QUANTUM_PRECISION_DPS} dígitos")
+            mahal_hp = MahalanobisHP(precision_dps=QUANTUM_PRECISION_DPS)
+            
+            if is_train:
+                # Entrenar componentes HP
+                print("    Precomputando componentes Mahalanobis HP...")
                 self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix = \
-                    StatisticalAnalysisHP.precompute_mahalanobis_components(numeric_features.values.tolist())
-
-                mahalanobis_distances = []
-                for index, row in numeric_features.iterrows():
-                    point = row.values.tolist()
-                    distance = StatisticalAnalysisHP.calculate_mahalanobis_for_point(
-                        point, self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix
-                    )
-                    mahalanobis_distances.append(float(distance))
-                
-                processed_data['mahalanobis_distance'] = mahalanobis_distances
-                print("  - Característica 'mahalanobis_distance': Creada para conjunto de entrenamiento")
-                print(f"    Rango: [{min(mahalanobis_distances):.4f}, {max(mahalanobis_distances):.4f}]")
-
-        else:
-            # Aplicar Mahalanobis a validación
+                    mahal_hp.precompute_components(numeric_features_df.astype(str).values.tolist())
+            
+            # Calcular distancias
             if self.mahalanobis_mean_vector is not None and self.mahalanobis_inv_cov_matrix is not None:
-                numeric_features = processed_data.select_dtypes(include=['number']).drop(
-                    columns=[col for col in ['n', 'target', 'id'] if col in processed_data.columns], 
-                    errors='ignore'
-                )
+                distances = []
+                for _, row in numeric_features_df.iterrows():
+                    result = mahal_hp.calculate_for_point(
+                        row.astype(str).values.tolist(),
+                        self.mahalanobis_mean_vector,
+                        self.mahalanobis_inv_cov_matrix
+                    )
+                    distances.append(float(result.distance))
                 
-                if not numeric_features.empty:
-                    mahalanobis_distances = []
-                    for index, row in numeric_features.iterrows():
-                        point = row.values.tolist()
-                        distance = StatisticalAnalysisHP.calculate_mahalanobis_for_point(
-                            point, self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix
-                        )
-                        mahalanobis_distances.append(float(distance))
-                    
-                    processed_data['mahalanobis_distance'] = mahalanobis_distances
-                    print("  - Característica 'mahalanobis_distance': Creada para conjunto de validación")
+                processed_data['mahalanobis_distance'] = distances
+                print(f"  ✓ Mahalanobis HP: {len(distances)} puntos calculados exitosamente")
+        else:
+            # Fallback a StatisticalAnalysisHP estándar (o NumPy si se prefiere)
+            print("  - Mahalanobis: Usando método estándar")
+            if is_train:
+                self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix = \
+                    StatisticalAnalysisHP.precompute_mahalanobis_components(numeric_features_df.values.tolist())
+            
+            if self.mahalanobis_mean_vector is not None and self.mahalanobis_inv_cov_matrix is not None:
+                distances = []
+                for _, row in numeric_features_df.iterrows():
+                    distance = StatisticalAnalysisHP.calculate_mahalanobis_for_point(
+                        row.values.tolist(), self.mahalanobis_mean_vector, self.mahalanobis_inv_cov_matrix
+                    )
+                    distances.append(float(distance))
+                processed_data['mahalanobis_distance'] = distances
+
 
         print("✓ Preprocesamiento completado exitosamente.")
         return processed_data

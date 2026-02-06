@@ -105,6 +105,16 @@ H7_EXPECTED_CLASSES = ['001', '010', '011', '100', '101', '110']
 H7_VALID_STATES = ['(0, 1)', '(1, 0)']
 
 # ============================================================================
+# PARÁMETROS DE QUOREMINDHP (Precisión Arbitraria)
+# ============================================================================
+QUOREMINDHP_ENABLED = True         # Habilitar integración QuoreMindHP
+QUANTUM_PRECISION_DPS = 100        # Precisión recomendada para datos H7
+MAHALANOBIS_METHOD = "quoremindhp"  # 'quoremindhp' vs 'sklearn'
+HP_THRESHOLD_NUM_FEATURES = 4      # Activar HP si >= 4 features
+HP_THRESHOLD_CORRELATION = 0.7     # Activar HP si correlación >= 0.7
+
+
+# ============================================================================
 # PARÁMETROS DE VALIDACIÓN Y PREPROCESAMIENTO
 # ============================================================================
 

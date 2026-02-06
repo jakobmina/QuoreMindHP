@@ -165,7 +165,8 @@ class MahalanobisHP:
         
         # Asegurar no-negativo
         if mahal_sq_val < 0:
-            mahal_sq_val = mpmath.mpf(0)
+            mahal_sq_val = mpmath.mpf("0")
+
         
         distance_hp = mpmath.sqrt(mahal_sq_val)
         distance_float = float(distance_hp)
@@ -242,11 +243,12 @@ class BayesianAnalysisH7:
         dos_pi = mpmath.mpf(2) * mpmath.pi
         fase_norm = mpmath.fmod(fase_mp, dos_pi)
         
-        # Incertidumbre máxima en π (90°)
         pi = mpmath.pi
         uncertainty = mpmath.fabs(fase_norm - pi) / pi
         
-        return mpmath.max(mpmath.mpf(0), mpmath.min(mpmath.mpf(1), uncertainty))
+        # Usar min/max nativos
+        return mpmath.mpf(max(0.0, min(1.0, float(uncertainty))))
+
     
     def calculate_probability_class(self, target: str, 
                                     entanglement: mpmath.mpf,
@@ -280,7 +282,8 @@ class BayesianAnalysisH7:
         # Probabilidad posterior (sin normalización completa, suficiente para ranking)
         posterior = prior * likelihood
         
-        return mpmath.min(mpmath.mpf(1), posterior)
+        return mpmath.mpf(min(1.0, float(posterior)))
+
     
     def __del__(self):
         """Restaurar precisión original."""
@@ -321,8 +324,9 @@ class ShannonEntropyHP:
         entropy = mpmath.mpf(0)
         for count in counts:
             if count > 0:
-                p = mpmath.mpf(count) / mpmath.mpf(n)
+                p = mpmath.mpf(str(count)) / mpmath.mpf(str(n))
                 entropy -= p * mpmath.log(p, 2)
+
         
         mpmath.mp.dps = original_dps
         return entropy

@@ -1,10 +1,12 @@
 import pandas as pd
 import numpy as np
+import mpmath
 from sklearn.ensemble import GradientBoostingClassifier 
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from .data_manager import DataManager
-from config import MODEL_PARAMS
+from config import MODEL_PARAMS, QUOREMINDHP_ENABLED, QUANTUM_PRECISION_DPS
 from quoremindhp_integration import BayesianAnalysisH7
+
 
 class ModelTrainer:
     """
@@ -129,29 +131,50 @@ class ModelTrainer:
         print("\n" + "=" * 70)
 
     def evaluate(self, val_data: pd.DataFrame) -> dict:
-      # En model_trainer.py, en evaluate()
-
-
-# Análisis Bayesiano de predicciones
-bayes_h7 = BayesianAnalysisH7(precision_dps=100)
-
-# Para cada clase predicha
-for target_class in np.unique(y_val):
-    # Si tienes Estado 2-1 en val_data:
-    if 'Estado 2-1' in val_data.columns:
-        estado = val_data['Estado 2-1'].iloc[0]
-        coherence = bayes_h7.calculate_entanglement_coherence(estado)
-        print(f"  Coherencia ({target_class}): {mpmath.nstr(coherence, n=15)}")
-        print("=" * 70)
+        """
+        Evalúa el modelo en el conjunto de validación.
+        
+        Args:
+            val_data (pd.DataFrame): Datos de validación.
+            
+        Returns:
+            dict: Métricas de evaluación.
+        """
+        print("\n" + "=" * 70)
         print("FASE 4: EVALUACIÓN EN CONJUNTO DE VALIDACIÓN")
         print("=" * 70)
         
         # Preprocesar los datos de validación
         processed_val_data = self.data_manager.preprocess_data(val_data, is_train=False)
 
-        # Extraer características con las mismas columnas del entrenamiento
+        # Extraer características
         X_val = self._get_numeric_features(processed_val_data, exclude_target=True)
         y_val = processed_val_data[self.target_column]
+        
+        # Alinear características
+        if set(X_val.columns) != set(self.feature_columns):
+            X_val = X_val[self.feature_columns]
+
+        print(f"✓ Muestras de validación: {X_val.shape[0]}")
+        
+        # Realizar predicciones
+        y_pred = self.model.predict(X_val)
+        
+        # Análisis Bayesiano HP (si está habilitado)
+        if QUOREMINDHP_ENABLED:
+            print("\n  Iniciando Análisis Bayesiano HP para validación...")
+            bayes_h7 = BayesianAnalysisH7(precision_dps=QUANTUM_PRECISION_DPS)
+            
+            # Ejemplo de resumen de coherencia para las clases predichas
+            for target_class in np.unique(y_val):
+                if 'Estado 2-1' in processed_val_data.columns:
+                    # Usar el primer estado encontrado para esta clase como referencia
+                    subset = processed_val_data[processed_val_data[self.target_column] == target_class]
+                    if not subset.empty:
+                        estado = subset['Estado 2-1'].iloc[0]
+                        coherence = bayes_h7.calculate_entanglement_coherence(estado)
+                        print(f"    - Coherencia base ({target_class}): {mpmath.nstr(coherence, n=10)}")
+
         
         # Validar que las características coincidan
         if set(X_val.columns) != set(self.feature_columns):
@@ -268,6 +291,34 @@ for target_class in np.unique(y_val):
         
         # Reportar resultados
         print(f"\n✓ Predicciones completadas.")
+        
+        results = {
+            'predictions': predictions,
+            'probabilities': probabilities,
+            'n_samples': len(predictions),
+            'feature_columns': self.feature_columns
+        }
+
+        # Integración QuoreMindHP: Confianza Bayesiana
+        if QUOREMINDHP_ENABLED:
+            print("\n  Calculando Confianza Bayesiana de alta precisión...")
+            bayes = BayesianAnalysisH7(precision_dps=QUANTUM_PRECISION_DPS)
+            bayesian_confidence = []
+            
+            for idx, pred in enumerate(predictions):
+                # Extraer estado y fase
+                estado = processed_test_data['Estado 2-1'].iloc[idx] if 'Estado 2-1' in processed_test_data.columns else '(0, 1)'
+                fase = processed_test_data['Fase Berry (rad)'].iloc[idx] if 'Fase Berry (rad)' in processed_test_data.columns else 0.0
+                
+                coherence = bayes.calculate_entanglement_coherence(estado)
+                uncertainty = bayes.calculate_measurement_uncertainty(fase)
+                
+                prob = bayes.calculate_probability_class(str(pred), coherence, uncertainty)
+                bayesian_confidence.append(float(prob))
+            
+            results['bayesian_confidence'] = bayesian_confidence
+            print(f"  ✓ Confianza Bayesiana calculada para {len(bayesian_confidence)} muestras")
+
         print(f"  Distribución de predicciones:")
         unique, counts = np.unique(predictions, return_counts=True)
         for pred_val, count in zip(unique, counts):
@@ -275,12 +326,8 @@ for target_class in np.unique(y_val):
         
         print("=" * 70)
         
-        return {
-            'predictions': predictions,
-            'probabilities': probabilities,
-            'n_samples': len(predictions),
-            'feature_columns': self.feature_columns
-        }
+        return results
+
 
     def get_model_info(self) -> dict:
         """
